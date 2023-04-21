@@ -193,16 +193,16 @@ This instruction raises the minimum required balance to `other fees` +
 
 Special cases:
 
-- If the payer does not have enough balance, the transaction is not scheduled
+1. If the payer does not have enough balance, the transaction is not scheduled
   and fails with an error `InsufficientFunds`. Consider this case the same as if
   the payer does not have enough funds to pay the base fees.
-- If the payer did not include this instruction in the transaction that
+2. If the payer did not include this instruction in the transaction that
   write-locks accounts with application fees, then the transaction fails with an
   error `ApplicationFeesNotPaid`. the payer will pay just `other fees`. The
   failure is before the execution of the transaction.
-- If the payer underpays the application fees, it will be handled the same as if
-  application fees were not paid.
-- If the payer overpays the application fees, then the transaction will be
+3. If the payer underpays the application fees, it will be handled the same as
+   case 2.
+4. If the payer overpays the application fees, then the transaction will be
   executed and the payer will be reimbursed the overpaid amount.
 
 This instruction cannot be CPI'ed into.
@@ -210,16 +210,20 @@ This instruction cannot be CPI'ed into.
 ### UpdateApplicationFees
 
 This mechanism will set the application fees for an account in the `Account`
-structure. The account must already exist and should be rent-free to change its
-application fees. Only the account authority must be allowed to update the
-application fees of an account. The application fee set will permanently update
-the account in the ledger. This mechanism can be reused with fees set to 0 to
-remove application fees on an account.
+structure. It takes the amount of lamports to be set as fees, and account
+concerned as input. The account must already exist and should be rent-free to
+change its application fees. Only the program owning the account must be allowed
+to update the application fees of an account. Program can implement additional
+instructions with appropriate checks so that authority can configure them
+correctly. The application fee set will permanently update the account in the
+ledger. This mechanism can be reused with fees set to `0` to remove application
+fees on an account.
 
 ### Rebate
 
-This mechanism should be called by the authority program to issue a rebate.
-Rebate takes amount of lamports to be rebated as input. In case of multiple
+This mechanism should be used by the authority program to issue a rebate of the
+application fees on a specific account. Rebate takes the amount of lamports to
+be rebated, and account on which rebate is issued as input. In case of multiple
 rebates by the program during the execution, only the highest amount of rebate
 will be taken into account. The rebated amount is always the minimum of rebate
 issued by the program and the application fees on the account. If program
@@ -228,15 +232,15 @@ Rebate amount cannot be 0.
 
 ### Looking at common cases
 
-##### No application fees involved
+##### No application fees enabled
 
 * A payer does not include `PayApplicationFees` in the transaction. The
   transaction does not write lock any accounts with application fees. Then the
-  transaction is executed without the application fee feature. The payer ends
-  up paying other fees.
+  transaction is executed without the application fee feature. The payer ends up
+  paying other fees.
 
 * A payer includes `PayApplicationFees(app fees)` in the transaction but none of
-  the accounts have any application fees. This case is considered as overpay case.
+  the accounts have any application fees. This case is considered an overpay case.
   The payer balance is checked for `other fees + app fees`.
   - The payer does not have enough balance: Transaction fails with an error
     `Insufficient Balance` and the transaction is not even scheduled for
@@ -246,7 +250,7 @@ Rebate amount cannot be 0.
   
   Note in this case
     even if there are no application fees involved the payer balance is checked
-    for application fees.
+    against application fees.
 
 ##### Application fees are involved
 
@@ -259,90 +263,74 @@ Rebate amount cannot be 0.
 
 * Fees paid no rebates case:
 
-  A payer includes instruction `PayApplicationFees(200)` in the transaction.
-  There are accounts (`accA`, `accB`) that are write-locked by the transaction
-  and each of them has an application fees of `100` lamports. Consider that the
-  program does not have any rebate mechanism. Then in any case (execution fails
-  or succeeds) `accA` will receive `100` lamports, `accB` will receive `100`
-  lamports. The payer will end up paying `other fees` + `200` lamports.
+  A payer includes instruction `PayApplicationFees(100)` in the transaction.
+  There is an account `accA` which is write-locked by the transaction and it has
+  an application fee of `100` lamports. Consider that the program does not have
+  any rebate mechanism. Then in any case (execution fails or succeeds) `accA`
+  will receive `100` lamports. The payer will end up paying `other fees` + `100`
+  lamports.
 
 * Fees paid full rebates case:
 
-  A payer includes instruction `PayApplicationFees(200)` in the transaction.
-  There are accounts (`accA`, `accB`) that are write-locked by the transaction
-  and each of them has an application fees of `100` lamports. Consider during
-  execution the program will rebate all the fees on both accounts. Then
-  payer should have a minimum balance of `other fees` + `200` lamports to execute
-  the transaction. After successful execution of the transaction, the `200`
-  lamports will be rebated by the program and then Solana runtime will transfer
-  them back to the payer. So the payer will finally end up paying `other fees`
-  only.
+  A payer includes instruction `PayApplicationFees(100)` in the transaction.
+  There is an accounts `accA` which is write-locked by the transaction and it
+  has an application fee of `100` lamports. Consider during execution the
+  program will rebate the application fee on the account. Then payer should have
+  a minimum balance of `other fees` + `100` lamports to execute the transaction.
+  After successful execution of the transaction, the `100` lamports will be
+  rebated by the program and then Solana runtime will transfer them back to the
+  payer. So the payer will finally end up paying `other fees` only.
 
 * Fees paid multiple partial rebates case:
 
   A payer includes instruction `PayApplicationFees(200)` in the transaction. The
   transaction has three instructions (`Ix1`, `Ix2`, `Ix3`). There are accounts
   (`accA`, `accB`) that are write-locked by the transaction and each of them has
-  an application fees of `100` lamports. Lets consider `Ix1` rebates 25 lamports
+  an application fee of `100` lamports. Lets consider `Ix1` rebates 25 lamports
   on both accounts, `Ix2` rebates 75 lamports on `accA` and `Ix3` rebates 10
-  lamports on `accB`. In case of multiple rebates only the maximum of all the
-  rebates is applied. Consider the transaction is executed successfully. The
+  lamports on `accB`. In the case of multiple rebates only the maximum of all
+  the rebates is applied. Consider the transaction is executed successfully. The
   maximum of all the rebates for `accA` is 75 lamports and `accB` is 25
-  lamports. So total of 100 lamports are rebated back to the payer, `accA` gets
-  25 lamports and `accB` get 75 lamports. The payer will end up paying
-  `other fees` + 100 lamports.
-
-* Fees paid and were over rebated case:
-
-  A payer includes instruction `PayApplicationFees(200)` in the transaction.
-  There are accounts (`accA`, `accB`) that are write-locked by the transaction
-  and each of them has an application fees of `100` lamports. Consider during
-  execution the program will rebate `1000` lamports on both accounts. Then payer
-  should have minimum balance of `other fees` + `200` lamports to execute the
-  transaction. After successful execution of the transaction, the
-  `min`(application fees (100), 1000) = 100` lamports totalling to 200 lamports
-  will be rebated by the program and then Solana runtime will transfer them back
-  to the payer. So the payer will finally end up paying `other fees` only and
-  total rebates are all application fees.
+  lamports. So a total of 100 lamports are rebated back to the payer, `accA`
+  gets 25 lamports and `accB` gets 75 lamports. The payer will end up paying
+  `other fees` + `100` lamports.
 
 * Fees paid full rebates but the execution failed case:
 
-  A payer includes instruction `PayApplicationFees(200)` in the transaction.
-  There are accounts (`accA`, `accB`) that are write-locked by the transaction
-  and each of them has an application fees of `100` lamports. Consider during
-  execution the program will rebate all the fees on both accounts but later
-  the execution failed. Then payer should have a minimum balance of `other fees`
-  + `200` lamports to execute the transaction. The program rebated application
-  fees but as executing the transaction failed, no rebate will be issued. The
-  application fees will be transferred to respective accounts, and the payer
-  will finally end up paying `other fees` + 200 lamports as application fees.
+  A payer includes instruction `PayApplicationFees(100)` in the transaction.
+  There is an account `accA` which is write-locked by the transaction and it has
+  an application fee of `100` lamports. Consider during execution the program
+  will rebate all the application fees on the account but later the execution
+  failed. Then payer should have a minimum balance of `other fees` + `100`
+  lamports to execute the transaction. The program rebated application fees but
+  as executing the transaction failed, no rebate will be issued. The application
+  fees will be transferred to respective accounts, and the payer will finally
+  end up paying `other fees` + `100` lamports as application fees.
 
 * Fees are over paid case:
 
   A payer includes instruction `PayApplicationFees(1000)` in the transaction.
-  There are accounts (`accA`, `accB`) that are write-locked by the transaction
-  and each of them has an application fees of `100` lamports. The minimum
-  balance required by payer will be `other fees` + `1000` lamports as
-  application fees. So payer pays 100 lamports per account as application fees
-  and 800 lamports is an overpayment. The 800 lamports will be transferred back
-  to the user even if transaction succeds or fails. The 100 lamports will be
-  transferred to each account in all the cases except if the transaction is
-  successful and the program issued a rebate.
+  There is an account `accA` that is write-locked by the transaction and it has
+  an application fee of `100` lamports. The minimum balance required by payer
+  will be `other fees` + `1000` lamports as application fees. So the payer pays
+  100 lamports for the account as application fees and 900 lamports is an
+  overpayment. The 900 lamports will be transferred back to the user even if the
+  transaction succeeds or fails. The 100 lamports will be transferred to each
+  account in all cases except if the transaction is successful and the program
+  issued a rebate.
 
 * Fees underpaid case:
 
   A payer includes instruction `PayApplicationFees(150)` in the transaction.
-  There are accounts (`accA`, `accB`, `accC`) that are write-locked by the
-  transaction and each of them has an application fees of `100` lamports. Each
-  account is mentioned in the transaction in the same order `accA`, `accB` and
-  then `accC`. The minimum balance required by payer will be `other fees` +
-  `150` lamports as application fees to load accounts and schedule transactions
-  for execution. Here payer has insufficiently paid the application fees paying
-  150 lamports instead of 300 lamports. So before program execution, we detect
-  that the application fees is not sufficiently paid and execution fails with
-  error `ApplicationFeesNotPaid` and the partially paid amount is transferred
-  back to the payer. So payer pays only `base fees` in the end but the
-  transaction is unsuccessful.
+  There is an accounts `accA` that is write-locked by the transaction and it has
+  an application fees of `300` lamports. The minimum balance required by payer
+  will be `other fees` + `150` lamports as application fees to load accounts and
+  schedule transactions for execution. Here payer has insufficiently paid the
+  application fees paying 150 lamports instead of 300 lamports. So before
+  program execution, we detect that the application fees are not sufficiently
+  paid and execution fails with the error `ApplicationFeesNotPaid` and the
+  partially paid amount is transferred back to the payer. So the payer pays only
+  `base fees` in the end but the transaction is unsuccessful.
 
 
 ### Changes in the core Solana code
@@ -536,14 +524,3 @@ reasonable assuming that the transactions are executed successfully and the
 fees are rebated. This will make spammers spend their SOLs 2000 times more
 rapidly than before. The thumb rule for dapps to set application fees on their
 accounts is `More important the account = Higher application fees`.
-
-Suppose a user or entity desires to safeguard their token account from
-potentially malicious read/write locking that obstructs their ability to
-perform MEV. In that case, they can set the highest possible application fees
-on their token account, rendering it impossible to extract profit by blocking
-their account. Even if the transaction fails, and they have to pay the
-application fees, they can recover the fees as they own the account. A general
-guideline for users is that they should possess at least N times (where N=10
-is recommended) the SOLs required to pay application fees on their accounts so
-that they are not locked out. The user has to pay application fees to transfer
-all collected application fees.

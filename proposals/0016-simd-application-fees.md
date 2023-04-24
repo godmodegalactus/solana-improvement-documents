@@ -68,25 +68,6 @@ will also help users to gain more control over accounts owned by them.
 Note that this proposal does not aim to increase gas fees for all transactions
 or add any kind of congestion control mechanism.
 
-## Alternatives Considered
-
-* Having a fixed write lock fee and a read lock fee.
-
-Pros: Simpler to implement, Simple to calculate fees.
-
-Cons: Will increase fees for everyone, dapp cannot decide to rebate fees, (or
-not all existing apps have to develop a rebate system). Fees cannot be decided
-by the dapp developer. Penalizes everyone for a few bad actors.
-
-* Passing application fees for each account by instruction and validating them
-  during the execution
-
-Pros: High efficiency, minimal performance impact, more generic, no need to
-change the account structure.
-
-Cons: Cannot prevent program denial of service attacks, or account blocking
-attacks. Cannot implement disable read locking feature.
-
 ## New Terminology
 
 Application Fees: Fees that are decided by the dapp developer will be charged if
@@ -115,120 +96,79 @@ tokens from another account, the authority's signature is not required.
 
 ## Detailed Design
 
-As a high-performance cluster, we want to incentivize players which feed the
-network with responsibly behaved transactions instead of spamming the network.
-The introduction of application fees would be an interesting way to penalize
-the bad actors and dapps can rebate these fees to the good actors. This means
-the dapp developer has to decide who to rebate and who to penalize special
-instructions. In particular, it needs to be able to penalize, even if the
-application is not CPI'd to. There were multiple possible approaches discussed
-to provide the application with access to transfer lamports outside of the
-regular cpi execution context. The following approach seems the best.
-
-*Updating core account structure to store application fees in ledger*.
-
-A `PayApplicationFee` instruction is will be used by Solana runtime to calculate
-how much total application fees are being paid by the transaction.
-
-A `UpdateApplicationFees` mechanism will change the application fees for an
-account.
-
-A `Rebate` mechanism will be used to rebate the application fees back to the
-payer.
-
-1. Easy to calculate total fees for a transaction message.
-2. Program authority can set application fees for the program's account.
-3. Program can rebate fees to the payer.
-4. Checks on payment of application fees are done even before executing the
-   program. In case of nonpayment or partial payment, the program is never
-   executed.
-5. Could make account-blocking DOS attacks less viable.
-6. Could be extended to protect read locking too.
+Application fees enable dapp developer to decide who to rebate and who to
+penalize through runtime features. In particular, programs needs to be able
+to penalize, even if the application is not CPI'd to.
 
 The checks on the application fees will be taken care of by Solana runtime.
-Total application fees paid will be included in the transaction so that it is
-easier to calculate the total amount of fees that will be paid and less scope
-for fraud. The maximum amount of application fees that can be set for an account
-will be limited to a predecided number of SOLs recommended (100 SOLs) so that
-account does not become inaccessible.
+Total application fees paid will be included in the transaction through a
+special `PayApplicationFees` similar to the `ComputeBudget` program so that it
+is easier to calculate the total amount of fees that will be paid. In case of
+nonpayment or partial payment, the program is never executed. This instruction
+cannot be CPI'ed into.
 
-All other programs have to implement required instructions so that the
-authority of the accounts can cyclically sign to update application fees on
-the accounts they own.
+Application developers will be able to rebate these fees through a new runtime
+mechanism, but only if the transaction actually succeeds, this way CU heavy
+simulation of the program while write-locking the respective accounts will
+require full fee payment.
+
+### Payment
+
+When the cluster receives a new transaction, `PayApplicationFees` instruction is
+decoded to calculate the total fees required for the transaction message. Then
+we verify that the fee-payer has a minimum balance of:
+`per-transaction base fees` + `prioritization fees` +
+`maximum application fees to be paid`
+
+If the payer does not have enough balance, the transaction is not scheduled
+and fails with an error `InsufficientFunds`. Consider this case the same as if
+the payer does not have enough funds to pay `other fees`.
+
+Before processing the message, we check if any loaded account has associated
+application fees. For all accounts with application fees, the fees paid should
+be greater than the required fees. In case of overpayment, the difference is
+stored in a variable and will be paid back to the payer in any case. In case the
+application fees are insufficiently paid or not paid then the transaction fails
+with an error `ApplicationFeesNotPaid`. The payer will pay just `other fees`.
+This failure is before the execution of the transaction.
+
+The application fees minus rebates and minus overpayment are transferred to
+the respecitve accounts lamport balance, from where the owner can collect them.
+
+### Configuration
 
 Application fees should be considered as set and forget kind of fees by dapp
 developers. They are not aimed to control congestion over the network instead
 they aim to reduce spamming.
 
-An additional proposal will be added later to address the read-locking of
-accounts.
+The ledger will need to store the amount of lamports required for every
+account. Hence changes should be constrained like any account write to the
+owner of the account. All programs will need to implement special instructions
+so that the authority of the accounts can sign to update application fees on
+the accounts.
 
-### A new application fee program
-
-We add a new native Solana program called the application fees program with
-program id.
-
-```
-App1icationFees1111111111111111111111111111
-```
-
-This native program will implement all the features required to implement
-application fees.
-
-### PayApplicationFees Instruction
-
-It requires:
-
-Accounts: None
-
-Argument: Maximum application fees to be paid in lamports as `u64`
-
-With this instruction, the fee payer accepts to pay application fees specifying
-the maximum amount. This instruction **MUST** be included in the transaction
-that interacts with dapps having application fees. This instruction is like an
-infallible transfer if the payer has enough funds i.e, even if the transaction
-fails, the payer will end up paying the required amount of application fees.
-This instruction raises the minimum required balance to `other fees` +
-`application fees`
-
-Special cases:
-
-1. If the payer does not have enough balance, the transaction is not scheduled
-  and fails with an error `InsufficientFunds`. Consider this case the same as if
-  the payer does not have enough funds to pay the base fees.
-2. If the payer did not include this instruction in the transaction that
-  write-locks accounts with application fees, then the transaction fails with an
-  error `ApplicationFeesNotPaid`. the payer will pay just `other fees`. The
-  failure is before the execution of the transaction.
-3. If the payer underpays the application fees, it will be handled the same as
-   case 2.
-4. If the payer overpays the application fees, then the transaction will be
-  executed and the payer will be reimbursed the overpaid amount.
-
-This instruction cannot be CPI'ed into.
-
-### UpdateApplicationFees
-
-This mechanism will set the application fees for an account in the `Account`
-structure. It takes the amount of lamports to be set as fees, and account
-concerned as input. The account must already exist and should be rent-free to
-change its application fees. Only the program owning the account must be allowed
-to update the application fees of an account. Program can implement additional
-instructions with appropriate checks so that authority can configure them
-correctly. The application fee set will permanently update the account in the
-ledger. This mechanism can be reused with fees set to `0` to remove application
-fees on an account.
+Setting the amount to `0` disables application fees. The maximum amount of
+application fees that can be set for an account will be limited to a constant
+amount of SOL (e.g. 20 SOL) so that accounts cannot become inaccessible
+through simple programming errors.
 
 ### Rebate
 
-This mechanism should be used by the authority program to issue a rebate of the
-application fees on a specific account. Rebate takes the amount of lamports to
-be rebated, and account on which rebate is issued as input. In case of multiple
-rebates by the program during the execution, only the highest amount of rebate
-will be taken into account. The rebated amount is always the minimum of rebate
-issued by the program and the application fees on the account. If program
-rebates `U64::MAX` it means all the application fees on the account are rebated.
-Rebate amount cannot be 0.
+The owner of the account can issue a rebate of the application fees paid to
+write lock a specific account. Similar to the configuration this will need to
+be exposed through special instructions so that programs can implement custom
+authorization and delegate the decision to composing programs.
+
+Simple rebate schemes will verify merely signers, e.g an oracle preventing
+3rd parties from write-locking their price feed. Dexes will need more complex
+rebate schemes based on instruction sysvar introspection.
+
+Rebate takes the amount of lamports to be rebated, and account on which rebate
+is issued as input. In case of multiple rebates from the same account only the
+highest amount of rebate will be taken into account. The rebated amount is
+always the minimum of rebate issued by the program and the application fees
+on the account. If program rebates `U64::MAX` it means all the application
+fees on the account are rebated. The rebate amount cannot be negative.
 
 ### Looking at common cases
 
@@ -252,7 +192,7 @@ Rebate amount cannot be 0.
     even if there are no application fees involved the payer balance is checked
     against application fees.
 
-##### Application fees are involved
+##### Application fees are enabled
 
 * Fees not paid case:
 
@@ -315,9 +255,9 @@ Rebate amount cannot be 0.
   will be `other fees` + `1000` lamports as application fees. So the payer pays
   100 lamports for the account as application fees and 900 lamports is an
   overpayment. The 900 lamports will be transferred back to the user even if the
-  transaction succeeds or fails. The 100 lamports will be transferred to each
-  account in all cases except if the transaction is successful and the program
-  issued a rebate.
+  transaction succeeds or fails. The 100 lamports will be transferred to `accA`
+  in all cases except if the transaction is successful and the program issued
+  a rebate.
 
 * Fees underpaid case:
 
@@ -333,58 +273,24 @@ Rebate amount cannot be 0.
   `base fees` in the end but the transaction is unsuccessful.
 
 
-### Changes in the core Solana code
+## Alternatives Considered
 
-We have to update the account structure to store the application fees. This may
-involve a lot of code changes in the core code of Solana. We will also have to
-store the application fees on the ledger and get them back from the ledger when
-we load the accounts.
+* Having a fixed write lock fee and a read lock fee.
 
-When the cluster receives a new transaction, `PayApplicationFees` instruction is
-decoded to calculate the total fees required for the transaction message. Then
-we verify that the fee-payer has a minimum balance of:
-`per-transaction base fees` + `prioritization fees` +
-`maximum application fees to be paid`
+Pros: Simpler to implement, Simple to calculate fees.
 
-If the payer has a sufficient balance then we continue loading other accounts.
-If `PayApplicationFees` is missing then the application fee is 0 and we expect
-there are no application fees involved on all the accounts that we have passed.
-If the payer has insufficient balance transaction fails with an error
-`Insufficient Balance`.
+Cons: Will increase fees for everyone, dapp cannot decide to rebate fees, (or
+not all existing apps have to develop a rebate system). Fees cannot be decided
+by the dapp developer. Penalizes everyone for a few bad actors.
 
-Before processing the message, we check if any loaded account has associated
-application fees. For all accounts with application fees, the fees paid should
-be greater than the required fees. In case of overpayment, the difference is
-stored in a variable and will be paid back to the payer in any case. In case the
-application fees are insufficiently paid or not paid, then we set the
-transaction status as errored.
+* Passing application fees for each account by instruction and validating them
+  during the execution inside user application code
 
-The structure `invoke context` is passed to all the native Solana program while
-execution. We create a new structure called `ApplicationFeeData` which contains
-one hashmap mapping application fees (`Pubkey` -> `application fees(u64)`), and
-another containing rebates (`Pubkey` -> `amount rebated (u64)`). The
-`ApplicationFeeData` structure will be filled by iterating over all the accounts
-and inserting accounts with application fees into the `application fees` map. On
-each `Rebate` call, we find the minimum between `application_fees` and
-the rebate amount for the account. If there is already a rebate in the `rebated`
-map then we update it by
-`max(rebate amount in map, rebate amount issued)`, if the map does not
-have any value for the account, then we add the rebated amount in the map.
+Pros: High efficiency, minimal performance impact, more generic, no need to
+change the account structure.
 
-In verify stage, we verify that `Application Fees` >= `Rebates` +
-`Overpaid amount` for each account and return `UnbalancedInstruction` on
-failure.
-
-After the execution of the program there are the following cases:
-
-The transaction was successfully executed:
-    * Rebates aggregated + overpaid fees transferred back to the payer.
-    * Remaining application fees transferred to the respective account.
-
-2. Transaction executed with an error:
-    * No rebates
-    * Overpaid application fees are given back to the payer.
-      Application fees are transferred to the respective account.
+Cons: Cannot prevent denial of service attacks, or account blocking
+attacks that do not call into the respective program
 
 ## Impact
 
@@ -449,29 +355,6 @@ Validators that do not implement this feature cannot replay the blocks with
 transactions using application fees they also could not validate the block
 including transactions with application fees.
 
-## Mango V4 Usecase
-
-With this feature implemented Mango-V4 will be able to charge users who spam
-risk-free arbitrage or spam liquidations by increasing application fees on
-perp-markets, token banks and mango-user accounts.
-
-#### Perp markets
-
-Application fees on perp liquidations, perp place order, perp cancel, perp
-consume, perp settle fees. Rebates on: successful liquidations, consume
-events, HFT market making refresh (cancel all, N* place POST, no IOC).
-
-#### Token vaults
-
-Application fees on open order book liquidations, deposit, withdrawals. Rebate
-on successful liquidations, place IOC & fill in isolation, HFT marketmaking
-refresh (cancel all, N* place POST, no IOC).
-
-#### Mango accounts
-
-Application fees on all liquidity transactions, consume events, settle pnl,
-all user signed transactions. Rebate on transaction signed by owner or
-delegate, successful liquidations, settlements, consume events.
 
 ## Additional Notes
 
@@ -524,3 +407,34 @@ reasonable assuming that the transactions are executed successfully and the
 fees are rebated. This will make spammers spend their SOLs 2000 times more
 rapidly than before. The thumb rule for dapps to set application fees on their
 accounts is `More important the account = Higher application fees`.
+
+### Pyth Usecase
+
+Pyth's price feeds currently serve around 33M CU peak read load. An attacker
+could write lock those for 12M CU and cause scheduling issues by crowding
+out the majority of the block. A high application fee of 10 SOL could prevent
+anyone except price feed publishers from write locking a price feed account.
+
+### Mango V4 Usecase
+
+With this feature implemented Mango-V4 will be able to charge users who spam
+risk-free arbitrage or spam liquidations by increasing application fees on
+perp-markets, token banks and mango-user accounts.
+
+#### Perp markets
+
+Application fees on perp liquidations, perp place order, perp cancel, perp
+consume, perp settle fees. Rebates on: successful liquidations, consume
+events, HFT market making refresh (cancel all, N* place POST, no IOC).
+
+#### Token vaults
+
+Application fees on open order book liquidations, deposit, withdrawals. Rebate
+on successful liquidations, place IOC & fill in isolation, HFT marketmaking
+refresh (cancel all, N* place POST, no IOC).
+
+#### Mango accounts
+
+Application fees on all liquidity transactions, consume events, settle pnl,
+all user signed transactions. Rebate on transaction signed by owner or
+delegate, successful liquidations, settlements, consume events.

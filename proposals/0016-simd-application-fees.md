@@ -141,34 +141,33 @@ Application fees should be considered as set and forget kind of fees by dapp
 developers. They are not aimed to control congestion over the network instead
 they aim to reduce spamming.
 
-The ledger will need to store the amount of lamports required for every
-account. Hence changes should be constrained like any account write to the
-owner of the account. All programs will need to implement special instructions
-so that the authority of the accounts can sign to update application fees on
-the accounts.
+The ledger will need to store the amount of lamports required for every account.
+Hence changes should be constrained like any account write to the owner of the
+account. All programs will need to implement special instructions so that the
+authority of the accounts can sign to update application fees on the accounts.
 
 Setting the amount to `0` disables application fees. The maximum amount of
 application fees that can be set for an account will be limited to a constant
-amount of SOL (e.g. 20 SOL) so that accounts cannot become inaccessible
-through simple programming errors.
+amount of SOL (e.g. 20 SOL) so that accounts cannot become inaccessible through
+simple programming errors.
 
 ### Rebate
 
 The owner of the account can issue a rebate of the application fees paid to
-write lock a specific account. Similar to the configuration this will need to
-be exposed through special instructions so that programs can implement custom
+write lock a specific account. Similar to the configuration this will need to be
+exposed through special instructions so that programs can implement custom
 authorization and delegate the decision to composing programs.
 
-Simple rebate schemes will verify merely signers, e.g an oracle preventing
-3rd parties from write-locking their price feed. Dexes will need more complex
-rebate schemes based on instruction sysvar introspection.
+Simple rebate schemes will verify merely signers, e.g an oracle preventing 3rd
+parties from write-locking their price feed. Dexes will need more complex rebate
+schemes based on instruction sysvar introspection.
 
 Rebate takes the amount of lamports to be rebated, and account on which rebate
 is issued as input. In case of multiple rebates from the same account only the
 highest amount of rebate will be taken into account. The rebated amount is
-always the minimum of rebate issued by the program and the application fees
-on the account. If program rebates `U64::MAX` it means all the application
-fees on the account are rebated. The rebate amount cannot be negative.
+always the minimum of rebate issued by the program and the application fees on
+the account. If program rebates `U64::MAX` it means all the application fees on
+the account are rebated. The rebate amount cannot be negative.
 
 ### Looking at common cases
 
@@ -180,8 +179,8 @@ fees on the account are rebated. The rebate amount cannot be negative.
   paying other fees.
 
 * A payer includes `PayApplicationFees(app fees)` in the transaction but none of
-  the accounts have any application fees. This case is considered an overpay case.
-  The payer balance is checked for `other fees + app fees`.
+  the accounts have any application fees. This case is considered an overpay
+  case. The payer balance is checked for `other fees + app fees`.
   - The payer does not have enough balance: Transaction fails with an error
     `Insufficient Balance` and the transaction is not even scheduled for
     execution.
@@ -411,9 +410,9 @@ accounts is `More important the account = Higher application fees`.
 ### Pyth Usecase
 
 Pyth's price feeds currently serve around 33M CU peak read load. An attacker
-could write lock those for 12M CU and cause scheduling issues by crowding
-out the majority of the block. A high application fee of 10 SOL could prevent
-anyone except price feed publishers from write locking a price feed account.
+could write lock those for 12M CU and cause scheduling issues by crowding out
+the majority of the block. A high application fee of 10 SOL could prevent anyone
+except price feed publishers from write locking a price feed account.
 
 ### Mango V4 Usecase
 

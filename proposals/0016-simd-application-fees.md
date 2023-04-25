@@ -68,6 +68,25 @@ will also help users to gain more control over accounts owned by them.
 Note that this proposal does not aim to increase gas fees for all transactions
 or add any kind of congestion control mechanism.
 
+## Alternatives Considered
+
+* Having a fixed write lock fee and a read lock fee.
+
+Pros: Simpler to implement, Simple to calculate fees.
+
+Cons: Will increase fees for everyone, dapp cannot decide to rebate fees, (or
+not all existing apps have to develop a rebate system). Fees cannot be decided
+by the dapp developer. Penalizes everyone for a few bad actors.
+
+* Passing application fees for each account by instruction and validating them
+  during the execution inside user application code
+
+Pros: High efficiency, minimal performance impact, more generic, no need to
+change the account structure.
+
+Cons: Cannot prevent denial of service attacks, or account blocking
+attacks that do not call into the respective program
+
 ## New Terminology
 
 Application Fees: Fees that are decided by the dapp developer will be charged if
@@ -75,7 +94,7 @@ a user wants to use the dapp. They will be applied even if the transaction fails
 contrary to lamport transfers. The program can decide to rebate these fees back
 to the user if certain conditions decided by dapp developers are met.
 
-## Other terminology
+### Other terminology
 
 `Owner` of an account: It is the account owner as specified in the `owner`
 field in the account structure. In the case of an externally owned account
@@ -171,7 +190,7 @@ the account are rebated. The rebate amount cannot be negative.
 
 ### Looking at common cases
 
-##### No application fees enabled
+#### No application fees enabled
 
 * A payer does not include `PayApplicationFees` in the transaction. The
   transaction does not write lock any accounts with application fees. Then the
@@ -181,17 +200,17 @@ the account are rebated. The rebate amount cannot be negative.
 * A payer includes `PayApplicationFees(app fees)` in the transaction but none of
   the accounts have any application fees. This case is considered an overpay
   case. The payer balance is checked for `other fees + app fees`.
-  - The payer does not have enough balance: Transaction fails with an error
+  1. The payer does not have enough balance: Transaction fails with an error
     `Insufficient Balance` and the transaction is not even scheduled for
     execution.
-  - The payer has enough balance then the transaction is executed and application
+  2. The payer has enough balance then the transaction is executed and application
     fees paid are transferred back to the payer in any case.
   
   Note in this case
     even if there are no application fees involved the payer balance is checked
     against application fees.
 
-##### Application fees are enabled
+#### Application fees are enabled
 
 * Fees not paid case:
 
@@ -270,26 +289,6 @@ the account are rebated. The rebate amount cannot be negative.
   paid and execution fails with the error `ApplicationFeesNotPaid` and the
   partially paid amount is transferred back to the payer. So the payer pays only
   `base fees` in the end but the transaction is unsuccessful.
-
-
-## Alternatives Considered
-
-* Having a fixed write lock fee and a read lock fee.
-
-Pros: Simpler to implement, Simple to calculate fees.
-
-Cons: Will increase fees for everyone, dapp cannot decide to rebate fees, (or
-not all existing apps have to develop a rebate system). Fees cannot be decided
-by the dapp developer. Penalizes everyone for a few bad actors.
-
-* Passing application fees for each account by instruction and validating them
-  during the execution inside user application code
-
-Pros: High efficiency, minimal performance impact, more generic, no need to
-change the account structure.
-
-Cons: Cannot prevent denial of service attacks, or account blocking
-attacks that do not call into the respective program
 
 ## Impact
 

@@ -22,34 +22,38 @@ not. These fees will be applied even if the transaction eventually fails and are
 collected on the account on which they were set. These fees would be only
 applied if the account is write locked by the transaction. The owner of the
 account can do lamport transfer to recover these fees. So instead of fees going
-to the validator, these fees go to the **writable account** i.e owner of the
-writable account. It will be dapp developer's responsibility to advertise the
-required PRAW fees to its users. User will have to specify the maximum amount of
-PRAW fees that they are willing to pay in the transaction. This way solana user
-and wallet adapters always know how much maximum fees they will end up paying to
-execute the transactions. If a user paid PRAW fees in excess the remaining
-amount of fees will be returned back to the user. Like prioritization fees,
-these fees will depend on the CU requested by the transaction.
-
+to the validator, these fees go to the **writable account**, therefore the owner
+of the writable account. It will be dapp developer's responsibility to advertise
+the required PRAW fees to its users. Users must specify the maximum amount of
+PRAW fees they are willing to pay in the transaction. This way, solana user and
+wallet adapters always know how much total fees they will pay to execute the
+transactions. If a user pays PRAW fees in excess, the excess fees will be
+refunded to the user. Like prioritization fees, these fees will depend on the CU
+requested by the transaction.
 
 ## Motivation
 
 ### Broken Mechanics
 
 When write-lock is taken, there are no checks on whether the program needs it or
-guarantees it will be used eventually. Whenever a transaction takes the
-write-lock, there is no punishment for taking the write-lock and not using it.
-Dapps have no authority over who can write-access the accounts owned by them.
-There is a 12M CUs per block per writable account limit, which makes the block
-space very important, and dapps would like to use it efficiently. Write-lock
-grievers use this advantage to get a competitive edge by write-locking the
-accounts of their competitors or dapp. Dapps may also want to incentivize
-certain transactions more than others during specific scenarios or conditions.
-Currently, dapps can regulate transactions that are executed successfully but
-cannot punish transactions that fail or that never CPI into the dapp. This makes
-honest users the cost bearer. There should be a mechanism where Dapps can
-monetize the accounts owned by them and then distribute the incentives as they
-see fit.
+guarantees it will be used eventually. There are no checks or any conditions to
+take a write lock on an account. Whenever a write-lock is taken on an account,
+other transactions using the same account cannot be executed in parallel and
+would be retried, making the execution sequential. Whenever a transaction takes
+the write-lock, there is no punishment for taking the write-lock and not using
+it. Dapps have no authority over who can write-access the accounts owned by
+them. There is a 12M CUs per block per writable account limit, which makes the
+block space very important, and dapps would like to use it efficiently.
+Write-lock grievers use this advantage to get a competitive edge by
+write-locking the accounts of their competitors or dapp. Dapps may also want to
+incentivize certain transactions more than others during specific scenarios or
+conditions. Currently, dapps can regulate transactions that are executed
+successfully but cannot punish transactions that fail or that never CPI into the
+dapp. This makes honest users the cost bearer. There should be a mechanism where
+Dapps can monetize the accounts owned by them and then distribute the incentives
+as they see fit. As it is Dapp which has paid rent on these accounts they can be
+considered as Dapps property and should be able to regulate or monitize its
+usage.
 
 ### Spamming
 
@@ -67,13 +71,14 @@ dapp control its traffic.
 ### Closing incentive loop
 
 With prioritization fees and MEV bribes, leaders will only include the
-transactions that maximize their profit. During extreme congestion or high
-network usage, these fees will increase drastically. For proper functioning of
-Dapps, they will need to incentivize some types of transactions more than
-others. These incentives will be distributed to subsidize the cost of sending
-transactions to the cluster. These incentives will eventually end up with the
-validators and their stakes accounts. These costs of creating incentives will
-then be transmitted to the users, making it lose its competitive advantages.
+transactions that maximize their profit which makes sense. During extreme
+congestion or high network usage, these fees will increase drastically. For
+proper functioning of Dapps, they will need to incentivize some types of
+transactions more than others. These incentives will be distributed to subsidize
+the cost of sending transactions to the cluster. These incentives will
+eventually end up with the validators and their stakes accounts. These costs of
+creating incentives will then be transmitted to the users, making it lose its
+competitive advantages.
 
 We should focus on circulating rewards evenly between the communities of Solana
 ecosystems and make Solana attractive to all DeFi, Validators, MEV, and other
@@ -81,34 +86,34 @@ protocols. With correctly managed PRAW fees, we can solve the issue for local
 fee markets and give actors the correct incentives to send proper instructions
 at the right time. This will also help dapp incentivize good behavior from the
 penalties collected for bad behavior. Better functioning of dapps will also
-increase profits by MEV or validator communities.
+increase profits by MEV and validator communities.
 
 ## Alternatives Considered
 
-* Having a seperate app chain for defi dapps
+1. *Having a seperate app chain for defi dapps*
 
-Pros: Dapps can implement their own incentive loop and have fine control over
++ Pros: Dapps can implement their own incentive loop and have fine control over
 accounts.
 
-Cons: A solana fork has to be developed and maintain, bidges have to be built.
-Not in the best interest for solana as a community.
+- Cons: A solana fork has to be developed and maintain, bidges have to be
+built. Not in the best interest for solana as a community.
 
-* Having a fixed write lock fee and a read lock fee.
+2. Having a fixed write lock fee and a read lock fee*
 
-Pros: Simpler to implement, Simple to calculate fees.
++ Pros: Simpler to implement, Simple to calculate fees.
 
-Cons: Will increase fees for everyone, dapp cannot decide to rebate fees, (or
-not all existing apps have to develop a rebate system). Fees cannot be decided
-by the dapp developer. Penalizes everyone for a few bad actors.
+- Cons: Will increase fees for everyone, dapp cannot decide to rebate fees, (or
+not all existing apps have to develop a rebate system). Fees cannot be
+decided by the dapp developer. Penalizes everyone for a few bad actors.
 
-* Passing fees for each account by instruction and validating them
-  during the execution inside user application code
+3. *Passing fees for each account by instruction and validating them*
+  *during the execution inside user application code*
 
-Pros: High efficiency, minimal performance impact, more generic, no need to
++ Pros: High efficiency, minimal performance impact, more generic, no need to
 change the account structure.
 
-Cons: Cannot prevent denial of service attacks, or account blocking
-attacks that do not call into the respective program
+- Cons: Cannot prevent denial of service attacks, or account blocking
+attacks that do not call into the respective program.
 
 ## New Terminology
 
@@ -145,12 +150,11 @@ will be part of a new `TransactionHeaderProgram` where all the transaction
 parameters will be set through a TVL. In case of nonpayment or partial payment,
 the program is never executed. This instruction cannot be CPI'ed into.
 
-Addition of new syscalls to get, set and rebate PRAW fees during program
-runtime. Application developers will be able to rebate these fees through the
-new syscall, but only if the transaction succeeds, this way transactions
-write-locking the respective accounts will require full fee payment before
-starting the execution of the transaction. Program will have to rebate fees back
-to the payer in case of rebates
+Addition of new syscalls to get and set PRAW fees during program runtime.
+Transactions write-locking the respective accounts will require full fee payment
+before starting the execution of the transaction. The program will do native
+transfers back to the payer in case of rebates. This means rebates will be only
+effective if the transaction was executed successfully.
 
 Once PRAW fees are paid on an account by the payer they are valid for the whole
 transaction, even if the same account is write-locked in multiple instructions.
@@ -439,23 +443,30 @@ microlamports per requested CUs.
 
 ## Impact
 
-Overall this feature fixes bug where there are no negative effects of taking
-write lock on an account. It will also incentivize the creation of proper
-transactions and spammers would have to pay much more fees reducing congestion
+This feature fixes bug where there are no negative effects of taking a write
+lock on an account. It will also incentivize the creation of proper
+transactions, and spammers would have to pay much more fees, reducing congestion
 in the cluster. This will add very low calculation overhead on the validators.
-It will also enable users to protect their accounts against malicious read and
-write locks. This feature will encourage everyone to write better-quality code
-to help avoid congestion.
+It will also protect users' accounts against malicious read and write locks.
+This feature will encourage everyone to write better-quality code to help avoid
+congestion.
 
-It is the dapp's responsibility to publish the PRAW fees fee required for each
-account and instruction. They should also add appropriate
+This proposal raises new philosophical and economics-related questions. Mainly
+because other blockchain protocols have never done this. Giving this minimum
+control to developers to regulate their dapps could make Solana very attractive.
+Closing this incentive loop is the way forward, making Solana lucrative for
+everyone.
+
+The dapp's responsible for publishing the PRAW fees required for each account
+and instruction. They should also add appropriate
 `SetProgramRebatableAccountWriteFees` instruction in their client library while
-creating transactions or provide visible API to get these PRAW fees. Some
-changes have to be done in web3.js client library to get PRAW fees when we
-request the account. The dapp developer have to also take into account PRAW fees
-on the programs they are dependent on. Dapps can improve infrastructure to
-properly update and advertise these fees to their clients in specific scenarios
-making them dynamic.
+creating transactions or providing visible API to get these PRAW fees. Changes
+must be done in web3.js client library to get PRAW fees when we request the
+account. The dapp developer has to also take into account PRAW fees on the
+programs they are dependent on. DApps can invent strategies around how these
+fees could be dynamic to do congestion control, or to give proper incentives. An
+offchain, or onchain program can update these fees to manage congestion or to
+promote specific behavior.
 
 The cluster is currently vulnerable to a different kind of attack where an
 adversary with malicious intent can block its competitors by writing or
@@ -476,6 +487,13 @@ they will consume their SOL tokens more rapidly to maintain the attack.
 
 ## Security Considerations
 
+Dapps may try to misuse PRAW fees by setting very high PRAW fees on their
+accounts to scam their users. Though this can be already done without PRAW fees.
+Any Dapp or developer trying to misuse these features will either lose their
+reputation or competitive advantage. According to this proposal, users and
+wallets always know the fees they will pay in the worst case. So, it will always
+be their decision to send the transaction to the cluster.
+
 If the PRAW fees fee for an account is set too high then we cannot ever mutate
 that account anymore. Maximum fees should be set to around 4.398046511104 *
 10^12 or 2^42 microlamports per CU, assuming that instruction that updates the
@@ -493,8 +511,8 @@ user fails to recover collected fees, in turn increasing PRAW fees collected on
 the account.
 
 Program developers should take care of rebating. They can rebate more than what
-PRAW fees were paid during the transaction. This may add into incentivising
-users to send some transaction.
+PRAW fees were paid during the transaction. This may be considered as an
+additional feature into incentivising users to send some transaction.
 
 ## Backwards Compatibility
 
@@ -594,3 +612,18 @@ refresh (cancel all, N* place POST, no IOC).
 PRAW fees on all liquidity transactions, consume events, settle pnl,
 all user signed transactions. Rebate on transaction signed by owner or
 delegate, successful liquidations, settlements, consume events.
+
+#### Mango concrete example
+
+During volatile market conditions, the number of transactions sent to the
+cluster increases because of liquidations and arbitrage opportunities. During
+these volatile market conditions, it is in Dapp's best interest to incentivize
+successful liquidations, so that dapp can protect its insurance funds and avoid
+socializing loss. Currently, liquidators earn a flat fee on successful
+liquidations. When prioritization fees or any other congestion mechanisms come
+into the picture, incentives for successful liquidations reduce as fees earned
+from liquidations will pay for prioritization fees. This can also make
+liquidators lose money if prioritization fees are too high. So mango can pay
+part or total prioritization fees on successful liquidations by the fees
+collected from other usage like arbitrage. This can only be done if we can
+charge write-lock take even if the mango program was never CPIed into.
